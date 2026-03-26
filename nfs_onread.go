@@ -54,7 +54,7 @@ func onRead(ctx context.Context, w *response, userHandle Handler) error {
 	resp := nfsReadResponse{}
 
 	if obj.Count > CheckRead {
-		info, err := fs.Stat(fs.Join(path...))
+		info, err := CachedStat(ctx, fs, fs.Join(path...))
 		if err != nil {
 			return &NFSStatusError{NFSStatusAccess, err}
 		}
@@ -81,7 +81,7 @@ func onRead(ctx context.Context, w *response, userHandle Handler) error {
 	if err := xdr.Write(writer, uint32(NFSStatusOk)); err != nil {
 		return &NFSStatusError{NFSStatusServerFault, err}
 	}
-	if err := WritePostOpAttrs(writer, tryStat(fs, path)); err != nil {
+	if err := WritePostOpAttrs(writer, tryStat(ctx, fs, path)); err != nil {
 		return &NFSStatusError{NFSStatusServerFault, err}
 	}
 

@@ -84,20 +84,44 @@ func (c *CachingHandler) FromHandle(ctx context.Context, fh []byte) (billy.Files
 		return nil, []string{}, err
 	}
 
-	if f, ok := c.activeHandles.Get(id); ok {
-		for _, k := range c.activeHandles.Keys() {
-			candidate, _ := c.activeHandles.Peek(k)
-			if hasPrefix(f.p, candidate.p) {
-				_, _ = c.activeHandles.Get(k)
+	f, ok := c.activeHandles.Get(id)
+	if !ok {
+		return nil, []string{}, &nfs.NFSStatusError{NFSStatus: nfs.NFSStatusStale}
+	}
+
+	// Touch parent paths to keep them alive in the LRU cache.
+	// This is O(depth) instead of O(N) where N is total cache size.
+	c.touchParentPaths(f.f, f.p)
+
+	newP := make([]string, len(f.p))
+	copy(newP, f.p)
+	return f.f, newP, nil
+}
+
+// touchParentPaths refreshes the LRU access time for all parent paths
+// to prevent them from being evicted while children are still in use.
+func (c *CachingHandler) touchParentPaths(f billy.Filesystem, path []string) {
+	// Walk up the path tree and touch each parent
+	for i := len(path) - 1; i >= 0; i-- {
+		parentPath := path[:i]
+		joinedPath := f.Join(parentPath...)
+
+		// Look up parent handles in the reverse cache
+		c.reverseHandlesMu.RLock()
+		ids := c.reverseHandles[joinedPath]
+		c.reverseHandlesMu.RUnlock()
+
+		// Touch each handle for this parent path
+		for _, id := range ids {
+			if candidate, ok := c.activeHandles.Peek(id); ok {
+				if candidate.f == f {
+					// Touch to refresh LRU access time
+					c.activeHandles.Get(id)
+					break // Only need to touch one handle per parent path
+				}
 			}
 		}
-		if ok {
-			newP := make([]string, len(f.p))
-			copy(newP, f.p)
-			return f.f, newP, nil
-		}
 	}
-	return nil, []string{}, &nfs.NFSStatusError{NFSStatus: nfs.NFSStatusStale}
 }
 
 func (c *CachingHandler) searchReverseCache(f billy.Filesystem, path string) []byte {

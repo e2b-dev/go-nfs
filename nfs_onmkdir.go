@@ -43,12 +43,12 @@ func onMkdir(ctx context.Context, w *response, userHandle Handler) error {
 
 	newFolder := append(path, string(obj.Filename))
 	newFolderPath := fs.Join(newFolder...)
-	if s, err := fs.Stat(newFolderPath); err == nil {
+	if s, err := CachedStat(ctx, fs, newFolderPath); err == nil {
 		if s.IsDir() {
 			return &NFSStatusError{NFSStatusExist, nil}
 		}
 	} else {
-		if s, err := fs.Stat(fs.Join(path...)); err != nil {
+		if s, err := CachedStat(ctx, fs, fs.Join(path...)); err != nil {
 			return &NFSStatusError{NFSStatusAccess, err}
 		} else if !s.IsDir() {
 			return &NFSStatusError{NFSStatusNotDir, nil}
@@ -59,10 +59,13 @@ func onMkdir(ctx context.Context, w *response, userHandle Handler) error {
 		return &NFSStatusError{NFSStatusAccess, err}
 	}
 
+	// Invalidate cache since directory was created
+	InvalidatePath(ctx, newFolderPath)
+
 	fp := userHandle.ToHandle(ctx, fs, newFolder)
 	changer := userHandle.Change(ctx, fs)
 	if changer != nil {
-		if err := attrs.Apply(changer, fs, newFolderPath); err != nil {
+		if err := attrs.Apply(ctx, changer, fs, newFolderPath); err != nil {
 			return &NFSStatusError{NFSStatusIO, err}
 		}
 	}
@@ -79,11 +82,11 @@ func onMkdir(ctx context.Context, w *response, userHandle Handler) error {
 	if err := xdr.Write(writer, fp); err != nil {
 		return &NFSStatusError{NFSStatusServerFault, err}
 	}
-	if err := WritePostOpAttrs(writer, tryStat(fs, newFolder)); err != nil {
+	if err := WritePostOpAttrs(writer, tryStat(ctx, fs, newFolder)); err != nil {
 		return &NFSStatusError{NFSStatusServerFault, err}
 	}
 
-	if err := WriteWcc(writer, nil, tryStat(fs, path)); err != nil {
+	if err := WriteWcc(writer, nil, tryStat(ctx, fs, path)); err != nil {
 		return &NFSStatusError{NFSStatusServerFault, err}
 	}
 

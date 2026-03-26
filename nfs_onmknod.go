@@ -58,10 +58,10 @@ func onMknod(ctx context.Context, w *response, userHandle Handler) error {
 	}
 
 	newFilePath := fs.Join(append(path, string(obj.Filename))...)
-	if _, err := fs.Stat(newFilePath); err == nil {
+	if _, err := CachedStat(ctx, fs, newFilePath); err == nil {
 		return &NFSStatusError{NFSStatusExist, os.ErrExist}
 	}
-	parent, err := fs.Stat(fs.Join(path...))
+	parent, err := CachedStat(ctx, fs, fs.Join(path...))
 	if err != nil {
 		return &NFSStatusError{NFSStatusAccess, err}
 	} else if !parent.IsDir() {
@@ -90,7 +90,8 @@ func onMknod(ctx context.Context, w *response, userHandle Handler) error {
 		if err != nil {
 			return &NFSStatusError{NFSStatusAccess, err}
 		}
-		if err = attrs.Apply(cu, fs, newFilePath); err != nil {
+		InvalidatePath(ctx, newFilePath)
+		if err = attrs.Apply(ctx, cu, fs, newFilePath); err != nil {
 			return &NFSStatusError{NFSStatusServerFault, err}
 		}
 
@@ -103,7 +104,8 @@ func onMknod(ctx context.Context, w *response, userHandle Handler) error {
 		if err := cu.Socket(newFilePath); err != nil {
 			return &NFSStatusError{NFSStatusAccess, err}
 		}
-		if err = attrs.Apply(cu, fs, newFilePath); err != nil {
+		InvalidatePath(ctx, newFilePath)
+		if err = attrs.Apply(ctx, cu, fs, newFilePath); err != nil {
 			return &NFSStatusError{NFSStatusServerFault, err}
 		}
 
@@ -117,7 +119,8 @@ func onMknod(ctx context.Context, w *response, userHandle Handler) error {
 		if err != nil {
 			return &NFSStatusError{NFSStatusAccess, err}
 		}
-		if err = attrs.Apply(cu, fs, newFilePath); err != nil {
+		InvalidatePath(ctx, newFilePath)
+		if err = attrs.Apply(ctx, cu, fs, newFilePath); err != nil {
 			return &NFSStatusError{NFSStatusServerFault, err}
 		}
 
@@ -140,11 +143,11 @@ func onMknod(ctx context.Context, w *response, userHandle Handler) error {
 		return &NFSStatusError{NFSStatusServerFault, err}
 	}
 	// attr
-	if err := WritePostOpAttrs(writer, tryStat(fs, append(path, string(obj.Filename)))); err != nil {
+	if err := WritePostOpAttrs(writer, tryStat(ctx, fs, append(path, string(obj.Filename)))); err != nil {
 		return &NFSStatusError{NFSStatusServerFault, err}
 	}
 	// wcc
-	if err := WriteWcc(writer, nil, tryStat(fs, path)); err != nil {
+	if err := WriteWcc(writer, nil, tryStat(ctx, fs, path)); err != nil {
 		return &NFSStatusError{NFSStatusServerFault, err}
 	}
 

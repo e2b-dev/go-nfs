@@ -20,7 +20,7 @@ func onGetAttr(ctx context.Context, w *response, userHandle Handler) error {
 	}
 
 	fullPath := fs.Join(path...)
-	info, err := fs.Lstat(fullPath)
+	info, err := CachedLstat(ctx, fs, fullPath)
 	if err != nil {
 		if os.IsNotExist(err) {
 			return &NFSStatusError{NFSStatusNoEnt, err}

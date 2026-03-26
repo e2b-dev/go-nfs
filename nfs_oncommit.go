@@ -35,7 +35,7 @@ func onCommit(ctx context.Context, w *response, userHandle Handler) error {
 	if err := xdr.Write(writer, uint32(0)); err != nil {
 		return &NFSStatusError{NFSStatusServerFault, err}
 	}
-	if err := WritePostOpAttrs(writer, tryStat(fs, path)); err != nil {
+	if err := WritePostOpAttrs(writer, tryStat(ctx, fs, path)); err != nil {
 		return &NFSStatusError{NFSStatusServerFault, err}
 	}
 	// write the 8 bytes of write verification.

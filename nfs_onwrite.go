@@ -51,7 +51,7 @@ func onWrite(ctx context.Context, w *response, userHandle Handler) error {
 
 	// stat first for pre-op wcc.
 	fullPath := fs.Join(path...)
-	info, err := fs.Stat(fullPath)
+	info, err := CachedStat(ctx, fs, fullPath)
 	if err != nil {
 		if os.IsNotExist(err) {
 			return &NFSStatusError{NFSStatusNoEnt, err}
@@ -87,12 +87,15 @@ func onWrite(ctx context.Context, w *response, userHandle Handler) error {
 		return &NFSStatusError{statusFromWriteError(err), err}
 	}
 
+	// Invalidate cache since file was modified
+	InvalidatePath(ctx, fullPath)
+
 	writer := bytes.NewBuffer([]byte{})
 	if err := xdr.Write(writer, uint32(NFSStatusOk)); err != nil {
 		return &NFSStatusError{NFSStatusServerFault, err}
 	}
 
-	if err := WriteWcc(writer, preOpCache, tryStat(fs, path)); err != nil {
+	if err := WriteWcc(writer, preOpCache, tryStat(ctx, fs, path)); err != nil {
 		return &NFSStatusError{NFSStatusServerFault, err}
 	}
 	if err := xdr.Write(writer, uint32(writtenCount)); err != nil {

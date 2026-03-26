@@ -40,10 +40,10 @@ func onLink(ctx context.Context, w *response, userHandle Handler) error {
 	}
 
 	newFilePath := fs.Join(append(path, string(obj.Filename))...)
-	if _, err := fs.Stat(newFilePath); err == nil {
+	if _, err := CachedStat(ctx, fs, newFilePath); err == nil {
 		return &NFSStatusError{NFSStatusExist, os.ErrExist}
 	}
-	if s, err := fs.Stat(fs.Join(path...)); err != nil {
+	if s, err := CachedStat(ctx, fs, fs.Join(path...)); err != nil {
 		return &NFSStatusError{NFSStatusAccess, err}
 	} else if !s.IsDir() {
 		return &NFSStatusError{NFSStatusNotDir, nil}
@@ -63,7 +63,11 @@ func onLink(ctx context.Context, w *response, userHandle Handler) error {
 	if err != nil {
 		return &NFSStatusError{NFSStatusAccess, err}
 	}
-	if err := attrs.Apply(changer, fs, newFilePath); err != nil {
+
+	// Invalidate cache since link was created
+	InvalidatePath(ctx, newFilePath)
+
+	if err := attrs.Apply(ctx, changer, fs, newFilePath); err != nil {
 		return &NFSStatusError{NFSStatusIO, err}
 	}
 
@@ -79,11 +83,11 @@ func onLink(ctx context.Context, w *response, userHandle Handler) error {
 	if err := xdr.Write(writer, fp); err != nil {
 		return &NFSStatusError{NFSStatusServerFault, err}
 	}
-	if err := WritePostOpAttrs(writer, tryStat(fs, append(path, string(obj.Filename)))); err != nil {
+	if err := WritePostOpAttrs(writer, tryStat(ctx, fs, append(path, string(obj.Filename)))); err != nil {
 		return &NFSStatusError{NFSStatusServerFault, err}
 	}
 
-	if err := WriteWcc(writer, nil, tryStat(fs, path)); err != nil {
+	if err := WriteWcc(writer, nil, tryStat(ctx, fs, path)); err != nil {
 		return &NFSStatusError{NFSStatusServerFault, err}
 	}
 

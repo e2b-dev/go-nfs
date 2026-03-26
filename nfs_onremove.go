@@ -29,7 +29,7 @@ func onRemove(ctx context.Context, w *response, userHandle Handler) error {
 	}
 
 	fullPath := fs.Join(path...)
-	dirInfo, err := fs.Stat(fullPath)
+	dirInfo, err := CachedStat(ctx, fs, fullPath)
 	if err != nil {
 		if os.IsNotExist(err) {
 			return &NFSStatusError{NFSStatusNoEnt, err}
@@ -67,7 +67,7 @@ func onRemove(ctx context.Context, w *response, userHandle Handler) error {
 		return &NFSStatusError{NFSStatusServerFault, err}
 	}
 
-	if err := WriteWcc(writer, preCacheData, tryStat(fs, path)); err != nil {
+	if err := WriteWcc(writer, preCacheData, tryStat(ctx, fs, path)); err != nil {
 		return &NFSStatusError{NFSStatusServerFault, err}
 	}
 

@@ -126,6 +126,14 @@ func (c *conn) serializeWrites(ctx context.Context) {
 // Handle a request. errors from this method indicate a failure to read or
 // write on the network stream, and trigger a disconnection of the connection.
 func (c *conn) handle(ctx context.Context, w *response) error {
+	// Add a per-request stat cache to avoid redundant filesystem calls
+	ctx = ContextWithStatCache(ctx)
+
+	// Optionally skip post-op attrs for performance
+	if c.Server.SkipPostOpAttrs {
+		ctx = ContextWithSkipPostOpAttrs(ctx)
+	}
+
 	handler := c.Server.handlerFor(w.req.Header.Prog, w.req.Header.Proc)
 	if handler == nil {
 		Log.Errorf("No handler for %d.%d", w.req.Header.Prog, w.req.Header.Proc)

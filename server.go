@@ -21,6 +21,12 @@ type Server struct {
 	context.Context
 
 	Hooks []Hook
+
+	// SkipPostOpAttrs when true causes the server to skip fetching post-operation
+	// file attributes in responses. This can significantly improve performance
+	// when the underlying filesystem has high stat latency, at the cost of clients
+	// needing to issue explicit GETATTR calls if they need up-to-date attributes.
+	SkipPostOpAttrs bool
 }
 
 // RegisterMessageHandler registers a handler for a specific

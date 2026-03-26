@@ -46,7 +46,7 @@ func onRename(ctx context.Context, w *response, userHandle Handler) error {
 	}
 
 	fromDirPath := fs.Join(fromPath...)
-	fromDirInfo, err := fs.Stat(fromDirPath)
+	fromDirInfo, err := CachedStat(ctx, fs, fromDirPath)
 	if err != nil {
 		if os.IsNotExist(err) {
 			return &NFSStatusError{NFSStatusNoEnt, err}
@@ -59,7 +59,7 @@ func onRename(ctx context.Context, w *response, userHandle Handler) error {
 	preCacheData := ToFileAttribute(fromDirInfo, fromDirPath).AsCache()
 
 	toDirPath := fs.Join(toPath...)
-	toDirInfo, err := fs.Stat(toDirPath)
+	toDirInfo, err := CachedStat(ctx, fs, toDirPath)
 	if err != nil {
 		if os.IsNotExist(err) {
 			return &NFSStatusError{NFSStatusNoEnt, err}
@@ -96,10 +96,10 @@ func onRename(ctx context.Context, w *response, userHandle Handler) error {
 		return &NFSStatusError{NFSStatusServerFault, err}
 	}
 
-	if err := WriteWcc(writer, preCacheData, tryStat(fs, fromPath)); err != nil {
+	if err := WriteWcc(writer, preCacheData, tryStat(ctx, fs, fromPath)); err != nil {
 		return &NFSStatusError{NFSStatusServerFault, err}
 	}
-	if err := WriteWcc(writer, preDestData, tryStat(fs, toPath)); err != nil {
+	if err := WriteWcc(writer, preDestData, tryStat(ctx, fs, toPath)); err != nil {
 		return &NFSStatusError{NFSStatusServerFault, err}
 	}
 

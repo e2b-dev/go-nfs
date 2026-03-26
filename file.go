@@ -1,6 +1,7 @@
 package nfs
 
 import (
+	"context"
 	"errors"
 	"hash/fnv"
 	"io"
@@ -130,9 +131,16 @@ func ToFileAttribute(info os.FileInfo, filePath string) *FileAttribute {
 }
 
 // tryStat attempts to create a FileAttribute from a path.
-func tryStat(fs billy.Filesystem, path []string) *FileAttribute {
+// It uses the stat cache from context if available.
+// If ShouldSkipPostOpAttrs(ctx) returns true, this returns nil to skip the stat.
+func tryStat(ctx context.Context, fs billy.Filesystem, path []string) *FileAttribute {
+	// Skip post-op attrs if configured
+	if ShouldSkipPostOpAttrs(ctx) {
+		return nil
+	}
+
 	fullPath := fs.Join(path...)
-	attrs, err := fs.Lstat(fullPath)
+	attrs, err := CachedLstat(ctx, fs, fullPath)
 	if err != nil || attrs == nil {
 		Log.Errorf("err loading attrs for %s: %v", fs.Join(path...), err)
 		return nil
@@ -198,9 +206,9 @@ type SetFileAttributes struct {
 }
 
 // Apply uses a `Change` implementation to set defined attributes on a
-// provided file.
-func (s *SetFileAttributes) Apply(changer billy.Change, fs billy.Filesystem, file string) error {
-	curOS, err := fs.Lstat(file)
+// provided file. It uses the stat cache from context if available.
+func (s *SetFileAttributes) Apply(ctx context.Context, changer billy.Change, fs billy.Filesystem, file string) error {
+	curOS, err := CachedLstat(ctx, fs, file)
 	if errors.Is(err, os.ErrNotExist) {
 		return &NFSStatusError{NFSStatusNoEnt, os.ErrNotExist}
 	} else if errors.Is(err, os.ErrPermission) {

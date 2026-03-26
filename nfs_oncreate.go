@@ -61,7 +61,7 @@ func onCreate(ctx context.Context, w *response, userHandle Handler) error {
 
 	newFile := append(path, string(obj.Filename))
 	newFilePath := fs.Join(newFile...)
-	if s, err := fs.Stat(newFilePath); err == nil {
+	if s, err := CachedStat(ctx, fs, newFilePath); err == nil {
 		if s.IsDir() {
 			return &NFSStatusError{NFSStatusExist, nil}
 		}
@@ -69,7 +69,7 @@ func onCreate(ctx context.Context, w *response, userHandle Handler) error {
 			return &NFSStatusError{NFSStatusExist, os.ErrPermission}
 		}
 	} else {
-		if s, err := fs.Stat(fs.Join(path...)); err != nil {
+		if s, err := CachedStat(ctx, fs, fs.Join(path...)); err != nil {
 			return &NFSStatusError{NFSStatusAccess, err}
 		} else if !s.IsDir() {
 			return &NFSStatusError{NFSStatusNotDir, nil}
@@ -86,9 +86,12 @@ func onCreate(ctx context.Context, w *response, userHandle Handler) error {
 		return &NFSStatusError{NFSStatusAccess, err}
 	}
 
+	// Invalidate cache since file was created
+	InvalidatePath(ctx, newFilePath)
+
 	fp := userHandle.ToHandle(ctx, fs, newFile)
 	changer := userHandle.Change(ctx, fs)
-	if err := attrs.Apply(changer, fs, newFilePath); err != nil {
+	if err := attrs.Apply(ctx, changer, fs, newFilePath); err != nil {
 		Log.Errorf("Error applying attributes: %v\n", err)
 		return &NFSStatusError{NFSStatusIO, err}
 	}
@@ -105,7 +108,7 @@ func onCreate(ctx context.Context, w *response, userHandle Handler) error {
 	if err := xdr.Write(writer, fp); err != nil {
 		return &NFSStatusError{NFSStatusServerFault, err}
 	}
-	if err := WritePostOpAttrs(writer, tryStat(fs, []string{file.Name()})); err != nil {
+	if err := WritePostOpAttrs(writer, tryStat(ctx, fs, []string{file.Name()})); err != nil {
 		return &NFSStatusError{NFSStatusServerFault, err}
 	}
 
@@ -113,7 +116,7 @@ func onCreate(ctx context.Context, w *response, userHandle Handler) error {
 	if err := xdr.Write(writer, uint32(0)); err != nil {
 		return &NFSStatusError{NFSStatusServerFault, err}
 	}
-	if err := WritePostOpAttrs(writer, tryStat(fs, path)); err != nil {
+	if err := WritePostOpAttrs(writer, tryStat(ctx, fs, path)); err != nil {
 		return &NFSStatusError{NFSStatusServerFault, err}
 	}
 

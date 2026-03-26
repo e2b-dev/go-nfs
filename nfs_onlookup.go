@@ -9,7 +9,7 @@ import (
 	"github.com/willscott/go-nfs-client/nfs/xdr"
 )
 
-func lookupSuccessResponse(handle []byte, entPath, dirPath []string, fs billy.Filesystem) ([]byte, error) {
+func lookupSuccessResponse(ctx context.Context, handle []byte, entPath, dirPath []string, fs billy.Filesystem) ([]byte, error) {
 	writer := bytes.NewBuffer([]byte{})
 	if err := xdr.Write(writer, uint32(NFSStatusOk)); err != nil {
 		return nil, err
@@ -17,10 +17,10 @@ func lookupSuccessResponse(handle []byte, entPath, dirPath []string, fs billy.Fi
 	if err := xdr.Write(writer, handle); err != nil {
 		return nil, err
 	}
-	if err := WritePostOpAttrs(writer, tryStat(fs, entPath)); err != nil {
+	if err := WritePostOpAttrs(writer, tryStat(ctx, fs, entPath)); err != nil {
 		return nil, err
 	}
-	if err := WritePostOpAttrs(writer, tryStat(fs, dirPath)); err != nil {
+	if err := WritePostOpAttrs(writer, tryStat(ctx, fs, dirPath)); err != nil {
 		return nil, err
 	}
 	return writer.Bytes(), nil
@@ -38,14 +38,14 @@ func onLookup(ctx context.Context, w *response, userHandle Handler) error {
 	if err != nil {
 		return &NFSStatusError{NFSStatusStale, err}
 	}
-	dirInfo, err := fs.Lstat(fs.Join(p...))
+	dirInfo, err := CachedLstat(ctx, fs, fs.Join(p...))
 	if err != nil || !dirInfo.IsDir() {
 		return &NFSStatusError{NFSStatusNotDir, err}
 	}
 
 	// Special cases for "." and ".."
 	if bytes.Equal(obj.Filename, []byte(".")) {
-		resp, err := lookupSuccessResponse(obj.Handle, p, p, fs)
+		resp, err := lookupSuccessResponse(ctx, obj.Handle, p, p, fs)
 		if err != nil {
 			return &NFSStatusError{NFSStatusServerFault, err}
 		}
@@ -60,7 +60,7 @@ func onLookup(ctx context.Context, w *response, userHandle Handler) error {
 		}
 		pPath := p[0 : len(p)-1]
 		pHandle := userHandle.ToHandle(ctx, fs, pPath)
-		resp, err := lookupSuccessResponse(pHandle, pPath, p, fs)
+		resp, err := lookupSuccessResponse(ctx, pHandle, pPath, p, fs)
 		if err != nil {
 			return &NFSStatusError{NFSStatusServerFault, err}
 		}
@@ -71,12 +71,12 @@ func onLookup(ctx context.Context, w *response, userHandle Handler) error {
 	}
 
 	reqPath := append(p, string(obj.Filename))
-	if _, err = fs.Lstat(fs.Join(reqPath...)); err != nil {
+	if _, err = CachedLstat(ctx, fs, fs.Join(reqPath...)); err != nil {
 		return &NFSStatusError{NFSStatusNoEnt, os.ErrNotExist}
 	}
 
 	newHandle := userHandle.ToHandle(ctx, fs, reqPath)
-	resp, err := lookupSuccessResponse(newHandle, reqPath, p, fs)
+	resp, err := lookupSuccessResponse(ctx, newHandle, reqPath, p, fs)
 	if err != nil {
 		return &NFSStatusError{NFSStatusServerFault, err}
 	}

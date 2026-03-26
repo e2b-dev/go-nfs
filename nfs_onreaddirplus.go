@@ -68,13 +68,13 @@ func onReadDirPlus(ctx context.Context, w *response, userHandle Handler) error {
 		// add '.' and '..' to entities
 		dotdotFileID := uint64(0)
 		if len(p) > 0 {
-			dda := tryStat(fs, p[0:len(p)-1])
+			dda := tryStat(ctx, fs, p[0:len(p)-1])
 			if dda != nil {
 				dotdotFileID = dda.Fileid
 			}
 		}
 		dotFileID := uint64(0)
-		da := tryStat(fs, p)
+		da := tryStat(ctx, fs, p)
 		if da != nil {
 			dotFileID = da.Fileid
 		}
@@ -121,7 +121,7 @@ func onReadDirPlus(ctx context.Context, w *response, userHandle Handler) error {
 	if err := xdr.Write(writer, uint32(NFSStatusOk)); err != nil {
 		return &NFSStatusError{NFSStatusServerFault, err}
 	}
-	if err := WritePostOpAttrs(writer, tryStat(fs, p)); err != nil {
+	if err := WritePostOpAttrs(writer, tryStat(ctx, fs, p)); err != nil {
 		return &NFSStatusError{NFSStatusServerFault, err}
 	}
 	if err := xdr.Write(writer, verifier); err != nil {

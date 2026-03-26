@@ -26,7 +26,7 @@ func onSetAttr(ctx context.Context, w *response, userHandle Handler) error {
 	}
 
 	fullPath := fs.Join(path...)
-	info, err := fs.Lstat(fullPath)
+	info, err := CachedLstat(ctx, fs, fullPath)
 	if err != nil {
 		if os.IsNotExist(err) {
 			return &NFSStatusError{NFSStatusNoEnt, err}
@@ -54,10 +54,13 @@ func onSetAttr(ctx context.Context, w *response, userHandle Handler) error {
 	}
 
 	changer := userHandle.Change(ctx, fs)
-	if err := attrs.Apply(changer, fs, fs.Join(path...)); err != nil {
+	if err := attrs.Apply(ctx, changer, fs, fs.Join(path...)); err != nil {
 		// Already an nfsstatuserror
 		return err
 	}
+
+	// Invalidate cache since attributes changed
+	InvalidatePath(ctx, fullPath)
 
 	preAttr := ToFileAttribute(info, fullPath).AsCache()
 
@@ -65,7 +68,7 @@ func onSetAttr(ctx context.Context, w *response, userHandle Handler) error {
 	if err := xdr.Write(writer, uint32(NFSStatusOk)); err != nil {
 		return &NFSStatusError{NFSStatusServerFault, err}
 	}
-	if err := WriteWcc(writer, preAttr, tryStat(fs, path)); err != nil {
+	if err := WriteWcc(writer, preAttr, tryStat(ctx, fs, path)); err != nil {
 		return &NFSStatusError{NFSStatusServerFault, err}
 	}
 
