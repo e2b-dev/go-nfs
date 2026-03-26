@@ -46,15 +46,16 @@ func (c *conn) serve(ctx context.Context) {
 	connCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
-	if hook := c.OnConnect; hook != nil {
-		connCtx, c.Conn = hook(connCtx, c.Conn)
-	}
-
-	defer func() {
-		if hook := c.OnDisconnect; hook != nil {
-			hook(connCtx, c.Conn)
+	for _, hook := range c.Hooks {
+		if hook.OnConnect != nil {
+			connCtx, c.Conn = hook.OnConnect(connCtx, c.Conn)
 		}
-	}()
+
+		if hook.OnDisconnect != nil {
+			// called in a loop intentionally, so the hooks are rewound correctly no matter what
+			defer hook.OnDisconnect(connCtx, c.Conn)
+		}
+	}
 
 	c.writeSerializer = make(chan []byte, 1)
 	go c.serializeWrites(connCtx)

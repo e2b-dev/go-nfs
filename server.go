@@ -9,14 +9,18 @@ import (
 	"time"
 )
 
+type Hook struct {
+	OnConnect    func(ctx context.Context, conn net.Conn) (context.Context, net.Conn)
+	OnDisconnect func(ctx context.Context, conn net.Conn)
+}
+
 // Server is a handle to the listening NFS server.
 type Server struct {
 	Handler
 	ID [8]byte
 	context.Context
 
-	OnConnect    func(ctx context.Context, conn net.Conn) (context.Context, net.Conn)
-	OnDisconnect func(ctx context.Context, conn net.Conn)
+	Hooks []Hook
 }
 
 // RegisterMessageHandler registers a handler for a specific
