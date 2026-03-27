@@ -30,11 +30,30 @@ func ShouldSkipPostOpAttrs(ctx context.Context) bool {
 // statCacheKey is the context key for the stat cache.
 type statCacheKey struct{}
 
+// statType distinguishes between Lstat and Stat results in the cache.
+// This is important because they return different results for symlinks:
+// - Lstat returns info about the symlink itself
+// - Stat follows the symlink and returns info about the target
+type statType int
+
+const (
+	statTypeLstat statType = iota
+	statTypeStat
+)
+
+// statCacheKeyEntry is the composite key for the stat cache.
+type statCacheKeyEntry struct {
+	path string
+	typ  statType
+}
+
 // StatCache provides per-request caching of stat results to avoid
 // redundant filesystem calls within a single NFS operation.
+// Lstat and Stat results are cached separately since they return
+// different results for symlinks.
 type StatCache struct {
 	mu    sync.RWMutex
-	cache map[string]statCacheEntry
+	cache map[statCacheKeyEntry]statCacheEntry
 }
 
 type statCacheEntry struct {
@@ -45,7 +64,7 @@ type statCacheEntry struct {
 // NewStatCache creates a new stat cache.
 func NewStatCache() *StatCache {
 	return &StatCache{
-		cache: make(map[string]statCacheEntry),
+		cache: make(map[statCacheKeyEntry]statCacheEntry),
 	}
 }
 
@@ -62,39 +81,42 @@ func StatCacheFromContext(ctx context.Context) *StatCache {
 	return nil
 }
 
-// Get retrieves a cached stat result, returning (info, err, true) if found,
+// get retrieves a cached stat result, returning (info, err, true) if found,
 // or (nil, nil, false) if not cached.
-func (c *StatCache) Get(path string) (os.FileInfo, error, bool) {
+func (c *StatCache) get(path string, typ statType) (os.FileInfo, error, bool) {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
-	if entry, ok := c.cache[path]; ok {
+	key := statCacheKeyEntry{path: path, typ: typ}
+	if entry, ok := c.cache[key]; ok {
 		return entry.info, entry.err, true
 	}
 	return nil, nil, false
 }
 
-// Put stores a stat result in the cache.
-func (c *StatCache) Put(path string, info os.FileInfo, err error) {
+// put stores a stat result in the cache.
+func (c *StatCache) put(path string, typ statType, info os.FileInfo, err error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	c.cache[path] = statCacheEntry{info: info, err: err}
+	key := statCacheKeyEntry{path: path, typ: typ}
+	c.cache[key] = statCacheEntry{info: info, err: err}
 }
 
-// Invalidate removes a path from the cache (useful after mutations).
-func (c *StatCache) Invalidate(path string) {
+// invalidate removes a path from the cache for both Lstat and Stat.
+func (c *StatCache) invalidate(path string) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	delete(c.cache, path)
+	delete(c.cache, statCacheKeyEntry{path: path, typ: statTypeLstat})
+	delete(c.cache, statCacheKeyEntry{path: path, typ: statTypeStat})
 }
 
 // CachedLstat performs an Lstat, using the cache if available.
 func CachedLstat(ctx context.Context, fs billy.Filesystem, path string) (os.FileInfo, error) {
 	if cache := StatCacheFromContext(ctx); cache != nil {
-		if info, err, ok := cache.Get(path); ok {
+		if info, err, ok := cache.get(path, statTypeLstat); ok {
 			return info, err
 		}
 		info, err := fs.Lstat(path)
-		cache.Put(path, info, err)
+		cache.put(path, statTypeLstat, info, err)
 		return info, err
 	}
 	return fs.Lstat(path)
@@ -103,19 +125,20 @@ func CachedLstat(ctx context.Context, fs billy.Filesystem, path string) (os.File
 // CachedStat performs a Stat, using the cache if available.
 func CachedStat(ctx context.Context, fs billy.Filesystem, path string) (os.FileInfo, error) {
 	if cache := StatCacheFromContext(ctx); cache != nil {
-		if info, err, ok := cache.Get(path); ok {
+		if info, err, ok := cache.get(path, statTypeStat); ok {
 			return info, err
 		}
 		info, err := fs.Stat(path)
-		cache.Put(path, info, err)
+		cache.put(path, statTypeStat, info, err)
 		return info, err
 	}
 	return fs.Stat(path)
 }
 
 // InvalidatePath removes a path from the stat cache (call after mutations).
+// This invalidates both Lstat and Stat entries for the path.
 func InvalidatePath(ctx context.Context, path string) {
 	if cache := StatCacheFromContext(ctx); cache != nil {
-		cache.Invalidate(path)
+		cache.invalidate(path)
 	}
 }
