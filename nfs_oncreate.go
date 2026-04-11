@@ -79,11 +79,11 @@ func onCreate(ctx context.Context, w *response, userHandle Handler) error {
 	file, err := fs.Create(newFilePath)
 	if err != nil {
 		Log.Errorf("Error Creating: %v", err)
-		return &NFSStatusError{NFSStatusAccess, err}
+		return &NFSStatusError{statusFromWriteError(err), err}
 	}
 	if err := file.Close(); err != nil {
 		Log.Errorf("Error Creating: %v", err)
-		return &NFSStatusError{NFSStatusAccess, err}
+		return &NFSStatusError{statusFromWriteError(err), err}
 	}
 
 	// Invalidate cache since file was created

@@ -66,7 +66,7 @@ func onWrite(ctx context.Context, w *response, userHandle Handler) error {
 	// now the actual op.
 	file, err := fs.OpenFile(fs.Join(path...), os.O_RDWR, info.Mode().Perm())
 	if err != nil {
-		return &NFSStatusError{NFSStatusAccess, err}
+		return &NFSStatusError{statusFromWriteError(err), err}
 	}
 	if req.Offset > 0 {
 		if _, err := file.Seek(int64(req.Offset), io.SeekStart); err != nil {
