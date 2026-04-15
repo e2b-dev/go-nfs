@@ -15,12 +15,12 @@ import (
 )
 
 // NewCachingHandler wraps a handler to provide a basic to/from-file handle cache.
-func NewCachingHandler(h nfs.Handler, limit int) nfs.Handler {
+func NewCachingHandler(h nfs.Handler, limit int) *CachingHandler {
 	return NewCachingHandlerWithVerifierLimit(h, limit, limit)
 }
 
 // NewCachingHandlerWithVerifierLimit provides a basic to/from-file handle cache that can be tuned with a smaller cache of active directory listings.
-func NewCachingHandlerWithVerifierLimit(h nfs.Handler, limit int, verifierLimit int) nfs.Handler {
+func NewCachingHandlerWithVerifierLimit(h nfs.Handler, limit int, verifierLimit int) *CachingHandler {
 	if limit < 2 || verifierLimit < 2 {
 		nfs.Log.Warnf("Caching handler created with insufficient cache to support directory listing", "size", limit, "verifiers", verifierLimit)
 	}
@@ -185,6 +185,30 @@ func (c *CachingHandler) InvalidateHandle(ctx context.Context, fs billy.Filesyst
 // HandleLimit exports how many file handles can be safely stored by this cache.
 func (c *CachingHandler) HandleLimit() int {
 	return c.cacheLimit
+}
+
+// InvalidateHandlesForFilesystem removes all cached handles that reference the given filesystem.
+// This should be called when a filesystem is being closed to prevent stale handle errors.
+func (c *CachingHandler) InvalidateHandlesForFilesystem(fs billy.Filesystem) {
+	// Collect all handles that reference this filesystem
+	var toRemove []uuid.UUID
+
+	for _, id := range c.activeHandles.Keys() {
+		if entry, ok := c.activeHandles.Peek(id); ok {
+			if entry.f == fs {
+				toRemove = append(toRemove, id)
+			}
+		}
+	}
+
+	// Remove all collected handles
+	for _, id := range toRemove {
+		if entry, ok := c.activeHandles.Peek(id); ok {
+			rk := entry.f.Join(entry.p...)
+			c.evictReverseCache(rk, id)
+		}
+		c.activeHandles.Remove(id)
+	}
 }
 
 func hasPrefix(path, prefix []string) bool {
