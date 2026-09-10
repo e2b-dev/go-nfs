@@ -48,10 +48,7 @@ func onRename(ctx context.Context, w *response, userHandle Handler) error {
 	fromDirPath := fs.Join(fromPath...)
 	fromDirInfo, err := fs.Stat(fromDirPath)
 	if err != nil {
-		if os.IsNotExist(err) {
-			return &NFSStatusError{NFSStatusNoEnt, err}
-		}
-		return &NFSStatusError{NFSStatusIO, err}
+		return statusErrorFrom(err, NFSStatusIO)
 	}
 	if !fromDirInfo.IsDir() {
 		return &NFSStatusError{NFSStatusNotDir, nil}
@@ -61,10 +58,7 @@ func onRename(ctx context.Context, w *response, userHandle Handler) error {
 	toDirPath := fs.Join(toPath...)
 	toDirInfo, err := fs.Stat(toDirPath)
 	if err != nil {
-		if os.IsNotExist(err) {
-			return &NFSStatusError{NFSStatusNoEnt, err}
-		}
-		return &NFSStatusError{NFSStatusIO, err}
+		return statusErrorFrom(err, NFSStatusIO)
 	}
 	if !toDirInfo.IsDir() {
 		return &NFSStatusError{NFSStatusNotDir, nil}
@@ -78,13 +72,13 @@ func onRename(ctx context.Context, w *response, userHandle Handler) error {
 
 	err = fs.Rename(fromLoc, toLoc)
 	if err != nil {
-		if os.IsNotExist(err) {
-			return &NFSStatusError{NFSStatusNoEnt, err}
-		}
-		if os.IsPermission(err) {
-			return &NFSStatusError{NFSStatusAccess, err}
-		}
-		return &NFSStatusError{NFSStatusIO, err}
+		// rename(2) distinguishes the ways a target can be in the way -
+		// EEXIST and ENOTEMPTY for a directory that already holds entries,
+		// EISDIR and ENOTDIR for a type mismatch between the two names -
+		// and RFC 1813 gives RENAME a status for each. Reporting them as
+		// NFS3ERR_IO leaves the client unable to tell a full directory from
+		// a failing disk.
+		return statusErrorFrom(err, NFSStatusIO)
 	}
 
 	if err := userHandle.InvalidateHandle(fs, oldHandle); err != nil {
