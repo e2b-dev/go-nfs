@@ -5,6 +5,7 @@ import (
 	"encoding/binary"
 	"errors"
 	"fmt"
+	"os"
 	"syscall"
 )
 
@@ -245,4 +246,61 @@ func statusFromWriteError(err error) NFSStatus {
 		return NFSStatusFBig
 	}
 	return NFSStatusIO
+}
+
+// statusFromError maps a filesystem error to the NFS status that names the
+// condition the client hit. err must not be nil. The second return is false
+// when the error carries no status a client can act on, leaving the choice of
+// fallback to the operation, whose RFC 1813 error list says what it may send.
+//
+// Order matters wherever a sentinel spans more than one errno: syscall.Errno
+// reports both EEXIST and ENOTEMPTY as os.ErrExist and both EACCES and EPERM
+// as os.ErrPermission, so the narrower errno is tested first. The sentinels
+// are tested alongside the errnos because billy filesystems that are not
+// backed by the OS return those instead.
+//
+// Operations that can only fail in a handful of ways keep their own narrower
+// mapping (see statusFromWriteError) so they cannot answer with a status the
+// client does not expect from them.
+func statusFromError(err error) (NFSStatus, bool) {
+	switch {
+	case errors.Is(err, syscall.ENOTEMPTY):
+		return NFSStatusNotEmpty, true
+	case errors.Is(err, syscall.EEXIST), errors.Is(err, os.ErrExist):
+		return NFSStatusExist, true
+	case errors.Is(err, syscall.EISDIR):
+		return NFSStatusIsDir, true
+	case errors.Is(err, syscall.ENOTDIR):
+		return NFSStatusNotDir, true
+	case errors.Is(err, syscall.EXDEV):
+		return NFSStatusXDev, true
+	case errors.Is(err, syscall.ENOENT), errors.Is(err, os.ErrNotExist):
+		return NFSStatusNoEnt, true
+	case errors.Is(err, os.ErrPermission):
+		return NFSStatusAccess, true
+	case errors.Is(err, syscall.EROFS):
+		return NFSStatusROFS, true
+	case errors.Is(err, syscall.ENAMETOOLONG):
+		return NFSStatusNameTooLong, true
+	case errors.Is(err, syscall.EMLINK):
+		return NFSStatusMlink, true
+	case errors.Is(err, syscall.ENOSPC):
+		return NFSStatusNoSPC, true
+	case errors.Is(err, syscall.EDQUOT):
+		return NFSStatusDQuot, true
+	case errors.Is(err, syscall.EINVAL), errors.Is(err, os.ErrInvalid):
+		return NFSStatusInval, true
+	}
+	return NFSStatusIO, false
+}
+
+// statusErrorFrom pairs a filesystem error with the NFS status that names it,
+// falling back to the status the operation prefers for errors statusFromError
+// cannot name. The original error is always wrapped, so it stays available to
+// the server log even when the status on the wire is the fallback.
+func statusErrorFrom(err error, fallback NFSStatus) *NFSStatusError {
+	if status, ok := statusFromError(err); ok {
+		return &NFSStatusError{status, err}
+	}
+	return &NFSStatusError{fallback, err}
 }

@@ -21,16 +21,20 @@ func onReadLink(ctx context.Context, w *response, userHandle Handler) error {
 
 	out, err := fs.Readlink(fs.Join(path...))
 	if err != nil {
-		if info, err := fs.Stat(fs.Join(path...)); err == nil {
-			if info.Mode()&os.ModeSymlink == 0 {
-				return &NFSStatusError{NFSStatusInval, err}
-			}
+		// readlink(2) already reports EINVAL for a name that is not a
+		// symlink, so the errno describes the failure on its own. Deciding
+		// the status from a follow-up Stat instead discards it, and gets the
+		// answer wrong on any filesystem whose Stat follows the link.
+		if status, ok := statusFromError(err); ok {
+			return &NFSStatusError{status, err}
 		}
-		if os.IsNotExist(err) {
-			return &NFSStatusError{NFSStatusNoEnt, err}
+		// Filesystems that are not backed by the OS may report something we
+		// cannot name; for those, a Stat that finds a non-symlink still tells
+		// us the client asked READLINK of the wrong file type.
+		if info, statErr := fs.Stat(fs.Join(path...)); statErr == nil && info.Mode()&os.ModeSymlink == 0 {
+			return &NFSStatusError{NFSStatusInval, err}
 		}
-
-		return &NFSStatusError{NFSStatusAccess, err}
+		return &NFSStatusError{NFSStatusIO, err}
 	}
 
 	writer := bytes.NewBuffer([]byte{})
