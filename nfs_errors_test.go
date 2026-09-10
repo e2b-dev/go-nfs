@@ -1,6 +1,7 @@
 package nfs_test
 
 import (
+	"errors"
 	"net"
 	"os"
 	"path"
@@ -221,10 +222,10 @@ func TestOnRenameStatusFromErrno(t *testing.T) {
 	}
 }
 
-// readlinkErrFS reports errs on Readlink and, like the OS and unlike memfs,
-// does not follow a symlink when stating it. Together those stand in for the
-// filesystems whose readlink errno the handler used to throw away in favour
-// of what a follow-up Stat implied.
+// readlinkErrFS reports errs on Readlink, standing in for the filesystems
+// whose readlink error the handler used to throw away in favour of what a
+// follow-up stat implied. It leaves memfs's Stat in place, which follows a
+// symlink just as the OS one does.
 type readlinkErrFS struct {
 	billy.Filesystem
 	err error
@@ -237,12 +238,13 @@ func (r readlinkErrFS) Readlink(link string) (string, error) {
 	return r.Filesystem.Readlink(link)
 }
 
-func (r readlinkErrFS) Stat(filename string) (os.FileInfo, error) {
-	return r.Filesystem.Lstat(filename)
-}
-
-// TestOnReadLinkStatusFromErrno checks that the errno readlink reports decides
-// the status, even where stating the same name would imply another answer.
+// TestOnReadLinkStatusFromErrno checks that the error readlink reports decides
+// the status of a READLINK on a symlink that really is one - so neither an
+// errno nor, for an error carrying none, the IO fallback may be displaced by
+// what stating the name implies. The name here is a symlink to a regular
+// file, which is what makes that a live risk: a Stat of it follows the link
+// and reports the target's mode, so anything reading the symlink bit off a
+// Stat concludes the client asked READLINK of a non-symlink.
 func TestOnReadLinkStatusFromErrno(t *testing.T) {
 	for _, tc := range []struct {
 		name string
@@ -254,6 +256,7 @@ func TestOnReadLinkStatusFromErrno(t *testing.T) {
 		{"vanished", syscall.ENOENT, nfs.NFSStatusNoEnt},
 		{"unreadable", syscall.EACCES, nfs.NFSStatusAccess},
 		{"failing disk", syscall.EIO, nfs.NFSStatusIO},
+		{"no errno at all", errors.New("something went wrong"), nfs.NFSStatusIO},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			mem := memfs.New()

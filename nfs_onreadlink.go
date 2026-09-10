@@ -29,9 +29,11 @@ func onReadLink(ctx context.Context, w *response, userHandle Handler) error {
 			return &NFSStatusError{status, err}
 		}
 		// Filesystems that are not backed by the OS may report something we
-		// cannot name; for those, a Stat that finds a non-symlink still tells
-		// us the client asked READLINK of the wrong file type.
-		if info, statErr := fs.Stat(fs.Join(path...)); statErr == nil && info.Mode()&os.ModeSymlink == 0 {
+		// cannot name; for those, finding a non-symlink still tells us the
+		// client asked READLINK of the wrong file type. It has to be Lstat:
+		// Stat follows the link, so it reports the target's mode and would
+		// call a genuine symlink the wrong file type.
+		if info, statErr := fs.Lstat(fs.Join(path...)); statErr == nil && info.Mode()&os.ModeSymlink == 0 {
 			return &NFSStatusError{NFSStatusInval, err}
 		}
 		return &NFSStatusError{NFSStatusIO, err}
