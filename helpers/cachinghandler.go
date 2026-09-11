@@ -1,10 +1,10 @@
 package helpers
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/binary"
 	"io/fs"
-	"reflect"
 	"sync"
 
 	"github.com/willscott/go-nfs"
@@ -53,7 +53,7 @@ type entry struct {
 // ToHandle takes a file and represents it with an opaque handle to reference it.
 // In stateless nfs (when it's serving a unix fs) this can be the device + inode
 // but we can generalize with a stateful local cache of handed out IDs.
-func (c *CachingHandler) ToHandle(f billy.Filesystem, path []string) []byte {
+func (c *CachingHandler) ToHandle(ctx context.Context, f billy.Filesystem, path []string) []byte {
 	joinedPath := f.Join(path...)
 
 	if handle := c.searchReverseCache(f, joinedPath); handle != nil {
@@ -78,7 +78,7 @@ func (c *CachingHandler) ToHandle(f billy.Filesystem, path []string) []byte {
 }
 
 // FromHandle converts from an opaque handle to the file it represents
-func (c *CachingHandler) FromHandle(fh []byte) (billy.Filesystem, []string, error) {
+func (c *CachingHandler) FromHandle(ctx context.Context, fh []byte) (billy.Filesystem, []string, error) {
 	id, err := uuid.FromBytes(fh)
 	if err != nil {
 		return nil, []string{}, err
@@ -101,11 +101,21 @@ func (c *CachingHandler) FromHandle(fh []byte) (billy.Filesystem, []string, erro
 }
 
 func (c *CachingHandler) searchReverseCache(f billy.Filesystem, path string) []byte {
-	uuids := c.getReverseHandles(path)
+	// Hold RLock for entire iteration to prevent races with appendReverseHandle
+	// and evictReverseCache which modify the slice. This is safe because
+	// activeHandles.Get() has its own internal synchronization (LRU cache).
+	c.reverseHandlesMu.RLock()
+	defer c.reverseHandlesMu.RUnlock()
 
-	for _, id := range uuids {
+	for _, id := range c.reverseHandles[path] {
 		if candidate, ok := c.activeHandles.Get(id); ok {
-			if reflect.DeepEqual(candidate.f, f) {
+			// Use interface comparison instead of reflect.DeepEqual to avoid
+			// race conditions. reflect.DeepEqual traverses all internal fields
+			// of the filesystem, including mutable maps that can be modified
+			// concurrently by file operations. Interface comparison (==) only
+			// compares type and pointer, which is sufficient for checking if
+			// it's the same filesystem instance.
+			if candidate.f == f {
 				return id[:]
 			}
 		}
@@ -130,19 +140,13 @@ func (c *CachingHandler) evictReverseCache(path string, handle uuid.UUID) {
 	}
 }
 
-func (c *CachingHandler) getReverseHandles(path string) []uuid.UUID {
-	c.reverseHandlesMu.RLock()
-	defer c.reverseHandlesMu.RUnlock()
-	return c.reverseHandles[path]
-}
-
 func (c *CachingHandler) appendReverseHandle(path string, id uuid.UUID) {
 	c.reverseHandlesMu.Lock()
 	defer c.reverseHandlesMu.Unlock()
 	c.reverseHandles[path] = append(c.reverseHandles[path], id)
 }
 
-func (c *CachingHandler) InvalidateHandle(fs billy.Filesystem, handle []byte) error {
+func (c *CachingHandler) InvalidateHandle(ctx context.Context, fs billy.Filesystem, handle []byte) error {
 	//Remove from cache
 	id, _ := uuid.FromBytes(handle)
 	entry, ok := c.activeHandles.Get(id)
