@@ -12,6 +12,8 @@ import (
 	"sort"
 
 	"github.com/willscott/go-nfs-client/nfs/xdr"
+
+	"github.com/willscott/go-nfs/file"
 )
 
 type readDirArgs struct {
@@ -45,7 +47,7 @@ func onReadDir(ctx context.Context, w *response, userHandle Handler) error {
 		return &NFSStatusError{NFSStatusStale, err}
 	}
 
-	contents, verifier, err := getDirListingWithVerifier(ctx, userHandle, obj.Handle, obj.CookieVerif)
+	contents, verifier, err := getDirListingWithVerifier(ctx, userHandle, obj.Handle, obj.Cookie, obj.CookieVerif)
 	if err != nil {
 		return err
 	}
@@ -137,7 +139,10 @@ func onReadDir(ctx context.Context, w *response, userHandle Handler) error {
 	return nil
 }
 
-func getDirListingWithVerifier(ctx context.Context, userHandle Handler, fsHandle []byte, verifier uint64) ([]fs.FileInfo, uint64, error) {
+// getDirListingWithVerifier lists the directory behind fsHandle. A listing that continues from a
+// non-zero cookie is served from the verifier cache when the handler has one; a listing that starts
+// from cookie zero always reads the directory.
+func getDirListingWithVerifier(ctx context.Context, userHandle Handler, fsHandle []byte, cookie uint64, verifier uint64) ([]fs.FileInfo, uint64, error) {
 	// figure out what directory it is.
 	fs, p, err := userHandle.FromHandle(ctx, fsHandle)
 	if err != nil {
@@ -145,8 +150,9 @@ func getDirListingWithVerifier(ctx context.Context, userHandle Handler, fsHandle
 	}
 
 	path := fs.Join(p...)
+	vh, caching := cachingHandlerOf(userHandle)
 	// see if the verifier has this dir cached:
-	if vh, ok := userHandle.(CachingHandler); verifier != 0 && ok {
+	if caching && cookie != 0 && verifier != 0 {
 		entries := vh.DataForVerifier(path, verifier)
 		if entries != nil {
 			return entries, verifier, nil
@@ -165,7 +171,7 @@ func getDirListingWithVerifier(ctx context.Context, userHandle Handler, fsHandle
 		return contents[i].Name() < contents[j].Name()
 	})
 
-	if vh, ok := userHandle.(CachingHandler); ok {
+	if caching {
 		// let the user handler make a verifier if it can.
 		v := vh.VerifierFor(path, contents)
 		return contents, v, nil
@@ -173,6 +179,22 @@ func getDirListingWithVerifier(ctx context.Context, userHandle Handler, fsHandle
 
 	id := hashPathAndContents(path, contents)
 	return contents, id, nil
+}
+
+// cachingHandlerOf finds the CachingHandler a handler provides, looking through handlers that
+// expose the one they wrap with an Unwrap method.
+func cachingHandlerOf(h Handler) (CachingHandler, bool) {
+	for h != nil {
+		if c, ok := h.(CachingHandler); ok {
+			return c, true
+		}
+		wrapper, ok := h.(interface{ Unwrap() Handler })
+		if !ok {
+			break
+		}
+		h = wrapper.Unwrap()
+	}
+	return nil, false
 }
 
 func hashPathAndContents(path string, contents []fs.FileInfo) uint64 {
@@ -184,6 +206,11 @@ func hashPathAndContents(path string, contents []fs.FileInfo) uint64 {
 
 	for _, c := range contents {
 		vHash.Write([]byte(c.Name())) // Never fails according to the docs
+		// The file ID tells apart directories with the same path and names on different
+		// filesystems served by one handler.
+		if info := file.GetInfo(c); info != nil {
+			vHash.Write(binary.BigEndian.AppendUint64(nil, info.Fileid))
+		}
 	}
 
 	verify := vHash.Sum(nil)[0:8]

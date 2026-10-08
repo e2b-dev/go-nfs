@@ -44,6 +44,9 @@ type UnixChange interface {
 
 // CachingHandler represents the optional caching work that a user may wish to over-ride with
 // their own implementations, but which can be otherwise provided through defaults.
+//
+// A Handler that wraps another one (logging, metrics, panic recovery) can expose the handler it
+// wraps through an `Unwrap() Handler` method; the server then finds a CachingHandler below it.
 type CachingHandler interface {
 	VerifierFor(path string, contents []fs.FileInfo) uint64
 
