@@ -8,6 +8,7 @@ import (
 	"sync"
 
 	"github.com/willscott/go-nfs"
+	"github.com/willscott/go-nfs/file"
 
 	"github.com/go-git/go-billy/v5"
 	"github.com/google/uuid"
@@ -190,6 +191,12 @@ func hashPathAndContents(path string, contents []fs.FileInfo) uint64 {
 
 	for _, c := range contents {
 		vHash.Write([]byte(c.Name())) // Never fails according to the docs
+		// One CachingHandler serves every mounted filesystem, and two of them can have a
+		// directory with the same path and file names. Mixing in each file's ID gives
+		// them different verifiers.
+		if info := file.GetInfo(c); info != nil {
+			vHash.Write(binary.BigEndian.AppendUint64(nil, info.Fileid))
+		}
 	}
 
 	verify := vHash.Sum(nil)[0:8]
@@ -203,7 +210,7 @@ func (c *CachingHandler) VerifierFor(path string, contents []fs.FileInfo) uint64
 }
 
 func (c *CachingHandler) DataForVerifier(path string, id uint64) []fs.FileInfo {
-	if cache, ok := c.activeVerifiers.Get(id); ok {
+	if cache, ok := c.activeVerifiers.Get(id); ok && cache.path == path {
 		return cache.contents
 	}
 	return nil
