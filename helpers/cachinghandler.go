@@ -191,8 +191,9 @@ func hashPathAndContents(path string, contents []fs.FileInfo) uint64 {
 
 	for _, c := range contents {
 		vHash.Write([]byte(c.Name())) // Never fails according to the docs
-		// One CachingHandler serves every mounted filesystem, so the same path and names can
-		// appear on two of them; the file IDs tell those listings apart.
+		// One CachingHandler serves every mounted filesystem, and two of them can have a
+		// directory with the same path and file names. Mixing in each file's ID gives
+		// them different verifiers.
 		if info := file.GetInfo(c); info != nil {
 			vHash.Write(binary.BigEndian.AppendUint64(nil, info.Fileid))
 		}

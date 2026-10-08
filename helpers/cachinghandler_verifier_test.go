@@ -8,7 +8,7 @@ import (
 	"github.com/willscott/go-nfs/file"
 )
 
-// dirEntry is a directory entry with a file ID, as a stat on a real filesystem reports.
+// dirEntry is a fake directory entry that carries a file ID, like a real stat result does.
 type dirEntry struct {
 	name   string
 	size   int64
@@ -22,8 +22,8 @@ func (e dirEntry) ModTime() time.Time { return time.Time{} }
 func (e dirEntry) IsDir() bool        { return false }
 func (e dirEntry) Sys() any           { return file.FileInfo{Fileid: e.fileid} }
 
-// Two filesystems served by one handler can hold the same path with the same names. Their
-// listings must not share a verifier, or one is served the other's sizes and file IDs.
+// Two filesystems can have a directory with the same path and file names. Each must get
+// its own verifier, otherwise one would be shown the other's files.
 func TestVerifierForTellsApartFilesystemsWithTheSameNames(t *testing.T) {
 	c := NewCachingHandler(nil, 16).(*CachingHandler)
 

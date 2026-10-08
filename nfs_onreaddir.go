@@ -139,9 +139,9 @@ func onReadDir(ctx context.Context, w *response, userHandle Handler) error {
 	return nil
 }
 
-// getDirListingWithVerifier lists the directory behind fsHandle. A listing that continues from a
-// non-zero cookie is served from the verifier cache when the handler has one; a listing that starts
-// from cookie zero always reads the directory.
+// getDirListingWithVerifier returns the entries of the directory a handle points to.
+// When the client continues a listing (cookie > 0), the copy cached on the first page is
+// used if there is one. A new listing (cookie 0) always reads the directory.
 func getDirListingWithVerifier(ctx context.Context, userHandle Handler, fsHandle []byte, cookie uint64, verifier uint64) ([]fs.FileInfo, uint64, error) {
 	// figure out what directory it is.
 	fs, p, err := userHandle.FromHandle(ctx, fsHandle)
@@ -181,8 +181,8 @@ func getDirListingWithVerifier(ctx context.Context, userHandle Handler, fsHandle
 	return contents, id, nil
 }
 
-// cachingHandlerOf finds the CachingHandler a handler provides, looking through handlers that
-// expose the one they wrap with an Unwrap method.
+// cachingHandlerOf returns the CachingHandler inside h, following Unwrap through any
+// handlers that wrap it.
 func cachingHandlerOf(h Handler) (CachingHandler, bool) {
 	for h != nil {
 		if c, ok := h.(CachingHandler); ok {
@@ -206,8 +206,8 @@ func hashPathAndContents(path string, contents []fs.FileInfo) uint64 {
 
 	for _, c := range contents {
 		vHash.Write([]byte(c.Name())) // Never fails according to the docs
-		// The file ID tells apart directories with the same path and names on different
-		// filesystems served by one handler.
+		// Two filesystems can have a directory with the same path and file names.
+		// Mixing in each file's ID gives them different verifiers.
 		if info := file.GetInfo(c); info != nil {
 			vHash.Write(binary.BigEndian.AppendUint64(nil, info.Fileid))
 		}

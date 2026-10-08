@@ -9,7 +9,7 @@ import (
 	"github.com/go-git/go-billy/v5/memfs"
 )
 
-// dirHandler serves the directory "dir" of fs for every handle.
+// dirHandler returns the directory "dir" on fs, whatever handle it is given.
 type dirHandler struct {
 	Handler
 	fs billy.Filesystem
@@ -19,7 +19,7 @@ func (h *dirHandler) FromHandle(context.Context, []byte) (billy.Filesystem, []st
 	return h.fs, []string{"dir"}, nil
 }
 
-// cachingDirHandler answers every verifier lookup with the same cached listing.
+// cachingDirHandler returns the same cached listing for any verifier.
 type cachingDirHandler struct {
 	*dirHandler
 	cached  []fs.FileInfo
@@ -33,7 +33,7 @@ func (h *cachingDirHandler) DataForVerifier(string, uint64) []fs.FileInfo {
 	return h.cached
 }
 
-// wrappingHandler stands in for middleware such as logging or panic recovery.
+// wrappingHandler wraps another handler, like logging or metrics middleware does.
 type wrappingHandler struct{ Handler }
 
 func (w wrappingHandler) Unwrap() Handler { return w.Handler }
