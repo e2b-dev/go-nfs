@@ -2,7 +2,9 @@ package nfs_test
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
+	"io"
 	"math/rand"
 	"net"
 	"os"
@@ -172,8 +174,8 @@ func TestNFS(t *testing.T) {
 	}
 	defer mf.Close()
 	buf := make([]byte, len(b))
-	if _, err = mf.Read(buf[:]); err != nil {
-		t.Fatal(err)
+	if n, err := mf.Read(buf[:]); n != len(b) || err != nil && !errors.Is(err, io.EOF) {
+		t.Fatalf("READ count=%d want=%d err=%v", n, len(b), err)
 	}
 	if !bytes.Equal(buf, b) {
 		t.Fatal("written does not match expected")
