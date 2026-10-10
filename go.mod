@@ -19,3 +19,6 @@ require (
 	github.com/polydawn/rio v0.0.0-20220823181337-7c31ad9831a4 // indirect
 	github.com/warpfork/go-errcat v0.0.0-20180917083543-335044ffc86e // indirect
 )
+
+// Preserve terminal READ cursor progress until the client fix is available upstream.
+replace github.com/willscott/go-nfs-client => github.com/snajpa/go-nfs-client v0.0.0-20261010180736-6436a64df37a
