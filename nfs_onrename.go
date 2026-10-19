@@ -32,8 +32,10 @@ func onRename(ctx context.Context, w *response, userHandle Handler) error {
 	if err != nil {
 		return &NFSStatusError{NFSStatusStale, err}
 	}
-	// check the two fs are the same
-	if !reflect.DeepEqual(fs, fs2) {
+	// Middleware can attach a different request context to each lookup. Only
+	// the mounted filesystem's identity determines whether RENAME is allowed;
+	// comparing wrapper contents also races mutable filesystem state.
+	if !sameFilesystem(fs, fs2) {
 		return &NFSStatusError{NFSStatusNotSupp, os.ErrPermission}
 	}
 
@@ -101,4 +103,27 @@ func onRename(ctx context.Context, w *response, userHandle Handler) error {
 		return &NFSStatusError{NFSStatusServerFault, err}
 	}
 	return nil
+}
+
+func sameFilesystem(left, right billy.Filesystem) bool {
+	unwrap := func(fs billy.Filesystem) billy.Filesystem {
+		for {
+			value := reflect.ValueOf(fs)
+			if !value.IsValid() || (value.Kind() == reflect.Ptr && value.IsNil()) {
+				return nil
+			}
+			wrapper, ok := fs.(interface{ Unwrap() billy.Filesystem })
+			if !ok {
+				return fs
+			}
+			fs = wrapper.Unwrap()
+		}
+	}
+	left, right = unwrap(left), unwrap(right)
+	typ := reflect.TypeOf(left)
+	// Only nonnil pointer instances have object identity we can prove without
+	// reading mutable fields. A struct's type can be comparable while one of
+	// its interface fields contains a non-comparable value, so type-level
+	// comparability alone does not make interface equality safe.
+	return typ != nil && typ == reflect.TypeOf(right) && typ.Kind() == reflect.Ptr && left == right
 }

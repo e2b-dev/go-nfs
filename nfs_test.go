@@ -2,7 +2,10 @@ package nfs_test
 
 import (
 	"bytes"
+	"errors"
+	"flag"
 	"fmt"
+	"io"
 	"math/rand"
 	"net"
 	"os"
@@ -91,10 +94,17 @@ func (f *trackingFile) Close() error {
 	return f.File.Close()
 }
 
-func TestNFS(t *testing.T) {
+// Configure the client logger before any test starts its RPC receiver.
+// Changing its unsynchronized debug flag in TestNFS races with earlier readers.
+func TestMain(m *testing.M) {
+	flag.Parse()
 	if testing.Verbose() {
 		util.DefaultLogger.SetDebug(true)
 	}
+	os.Exit(m.Run())
+}
+
+func TestNFS(t *testing.T) {
 
 	// make an empty in-memory server.
 	listener, err := net.Listen("tcp", "localhost:0")
@@ -172,8 +182,8 @@ func TestNFS(t *testing.T) {
 	}
 	defer mf.Close()
 	buf := make([]byte, len(b))
-	if _, err = mf.Read(buf[:]); err != nil {
-		t.Fatal(err)
+	if n, err := mf.Read(buf[:]); n != len(b) || err != nil && !errors.Is(err, io.EOF) {
+		t.Fatalf("READ count=%d want=%d err=%v", n, len(b), err)
 	}
 	if !bytes.Equal(buf, b) {
 		t.Fatal("written does not match expected")

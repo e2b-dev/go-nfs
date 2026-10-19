@@ -52,28 +52,48 @@ func onRead(ctx context.Context, w *response, userHandle Handler) error {
 	defer fh.Close()
 
 	resp := nfsReadResponse{}
+	var fileSize uint64
+	haveSize := false
 
 	if obj.Count > CheckRead {
 		info, err := fs.Stat(fs.Join(path...))
 		if err != nil {
 			return &NFSStatusError{NFSStatusAccess, err}
 		}
-		if info.Size()-int64(obj.Offset) < int64(obj.Count) {
-			obj.Count = uint32(uint64(info.Size()) - obj.Offset)
+		if info.Size() >= 0 {
+			fileSize, haveSize = uint64(info.Size()), true
+			if obj.Offset >= fileSize {
+				obj.Count = 0
+			} else if remaining := fileSize - obj.Offset; remaining < uint64(obj.Count) {
+				obj.Count = uint32(remaining)
+			}
 		}
 	}
 	if obj.Count > MaxRead {
 		obj.Count = MaxRead
 	}
+	// billy.ReaderAt takes a signed offset. A larger protocol offset is
+	// beyond every representable file size and must not wrap negative.
+	if obj.Offset > uint64(1<<63-1) {
+		obj.Count = 0
+		resp.EOF = 1
+	}
 	resp.Data = make([]byte, obj.Count)
 	// todo: multiple reads if size isn't full
-	cnt, err := fh.ReadAt(resp.Data, int64(obj.Offset))
+	var cnt int
+	if obj.Count != 0 {
+		cnt, err = fh.ReadAt(resp.Data, int64(obj.Offset))
+	}
 	if err != nil && !errors.Is(err, io.EOF) {
 		return &NFSStatusError{NFSStatusIO, err}
 	}
 	resp.Count = uint32(cnt)
 	resp.Data = resp.Data[:resp.Count]
-	if errors.Is(err, io.EOF) {
+	attrs := tryStat(fs, path)
+	if attrs != nil && attrs.Type == FileTypeRegular {
+		fileSize, haveSize = attrs.Filesize, true
+	}
+	if errors.Is(err, io.EOF) || haveSize && (obj.Offset >= fileSize || uint64(resp.Count) >= fileSize-obj.Offset) {
 		resp.EOF = 1
 	}
 
@@ -81,7 +101,7 @@ func onRead(ctx context.Context, w *response, userHandle Handler) error {
 	if err := xdr.Write(writer, uint32(NFSStatusOk)); err != nil {
 		return &NFSStatusError{NFSStatusServerFault, err}
 	}
-	if err := WritePostOpAttrs(writer, tryStat(fs, path)); err != nil {
+	if err := WritePostOpAttrs(writer, attrs); err != nil {
 		return &NFSStatusError{NFSStatusServerFault, err}
 	}
 

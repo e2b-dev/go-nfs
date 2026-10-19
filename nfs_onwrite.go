@@ -3,6 +3,7 @@ package nfs
 import (
 	"bytes"
 	"context"
+	"fmt"
 	"io"
 	"math"
 	"os"
@@ -70,6 +71,9 @@ func onWrite(ctx context.Context, w *response, userHandle Handler) error {
 	}
 	if req.Offset > 0 {
 		if _, err := file.Seek(int64(req.Offset), io.SeekStart); err != nil {
+			if closeErr := file.Close(); closeErr != nil {
+				err = fmt.Errorf("%w; closing write file: %v", err, closeErr)
+			}
 			return &NFSStatusError{NFSStatusIO, err}
 		}
 	}
@@ -79,6 +83,9 @@ func onWrite(ctx context.Context, w *response, userHandle Handler) error {
 	}
 	writtenCount, err := file.Write(req.Data[:end])
 	if err != nil {
+		if closeErr := file.Close(); closeErr != nil {
+			err = fmt.Errorf("%w; closing write file: %v", err, closeErr)
+		}
 		Log.Errorf("Error writing: %v", err)
 		return &NFSStatusError{statusFromWriteError(err), err}
 	}
