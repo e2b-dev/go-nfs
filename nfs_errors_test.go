@@ -187,6 +187,8 @@ func (r renameErrFS) Rename(oldpath, newpath string) error {
 	return r.Filesystem.Rename(oldpath, newpath)
 }
 
+func (r renameErrFS) Unwrap() billy.Filesystem { return r.Filesystem }
+
 // TestOnRenameStatusFromErrno checks that each errno a rename can report
 // reaches the client as the status RFC 1813 gives RENAME for it, rather than
 // as an NFS3ERR_IO the client can only pass on as EIO.
